@@ -2,46 +2,55 @@
 using Microsoft.Azure.CognitiveServices.ContentModerator;
 using Microsoft.Azure.CognitiveServices.ContentModerator.Models;
 using Newtonsoft.Json;
+using static LanguageExt.Prelude;
 
 namespace CognitiveServices.Application;
 
 public static class HarassmentEvaluator
 {
-    private static IEnumerable<string> LoadInputs(string filePath) =>
-        JsonConvert.DeserializeObject<TextInput>(File.ReadAllText(filePath)).Values;
+    private static IEnumerable<ScreeningInput> LoadInputs(CognitiveOptions options) =>
+        JsonConvert.DeserializeObject<TextInput>(File.ReadAllText(options.InputFilePath))
+            .Values
+            .Select(value => new ScreeningInput(options.ApiKey, options.ApiEndpoint, value));
 
-    public static async Task<IEnumerable<string>> EvaluateAsync(CognitiveOptions options)
+    public static async Task<IEnumerable<string>> EvaluateAsync(CognitiveOptions options) =>
+        await Task.WhenAll(LoadInputs(options).Select(GetScreeningResultAsync));
+
+    private static async Task<string> GetScreeningResultAsync(ScreeningInput screening) =>
+        await TryAsync(screening)
+            .Do(LogEvaluateBeginning)
+            .MapAsync(ScreenTextAsync)
+            .Map(SerializeScreening)
+            .Do(LogEvaluateSuccess)
+            .IfFail(ProcessFailure);
+
+    private static string ProcessFailure(Exception exception)
     {
-        var inputs = LoadInputs(options.InputFilePath);
-        var tasks = inputs.Select(value => GetScreeningResultAsync(value, options));
-        return await Task.WhenAll(tasks);
+        LogEvaluateFailure(exception);
+        return exception.Message;
     }
 
-    private static async Task<string> GetScreeningResultAsync(string text, CognitiveOptions options)
-    {
-        using var client = CreateClient(options);
-        try
-        {
-            Console.WriteLine($"Evaluating: '{text}'");
-            var screeningResult = await ScreenTextAsync(text, client);
-            var serializedResult = JsonConvert.SerializeObject(screeningResult, Formatting.Indented);
-            Console.WriteLine($"Evaluation result for '{text}': {serializedResult}");
-            return serializedResult;
-        }
-        catch (Exception exception)
-        {
-            Console.WriteLine($"Evaluation error for {text}: {exception.Message}");
-            return exception.Message;
-        }
-    }
+    private static string SerializeScreening(Screen result) => JsonConvert.SerializeObject(result, Formatting.Indented);
 
-    private static async Task<Screen> ScreenTextAsync(string text, IContentModeratorClient client) =>
-        await client.TextModeration.ScreenTextAsync("text/plain", new MemoryStream(Encoding.UTF8.GetBytes(text)), "eng",
+    private static void LogEvaluateFailure(Exception exception) =>
+        Console.WriteLine($"Evaluation error: {exception.Message}");
+
+    private static void LogEvaluateSuccess(string serialized) =>
+        Console.WriteLine($"Evaluation result: {serialized}");
+
+    private static void LogEvaluateBeginning(ScreeningInput screening) =>
+        Console.WriteLine($"Evaluating: '{screening.Text}'");
+
+    private static async Task<Screen> ScreenTextAsync(ScreeningInput screening) =>
+        await CreateClient(screening).TextModeration.ScreenTextAsync("text/plain",
+            new MemoryStream(Encoding.UTF8.GetBytes(screening.Text)), "eng",
             true, true, null, true);
 
-    private static IContentModeratorClient CreateClient(CognitiveOptions options) =>
-        new ContentModeratorClient(new ApiKeyServiceClientCredentials(options.ApiKey))
+    private static IContentModeratorClient CreateClient(ScreeningInput screening) =>
+        new ContentModeratorClient(new ApiKeyServiceClientCredentials(screening.ApiKey))
         {
-            Endpoint = options.ApiEndpoint,
+            Endpoint = screening.ApiEndpoint,
         };
+
+    private record ScreeningInput(string ApiKey, string ApiEndpoint, string Text);
 }
