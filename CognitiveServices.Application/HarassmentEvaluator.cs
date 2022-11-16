@@ -30,7 +30,12 @@ public static class HarassmentEvaluator
         return exception.Message;
     }
 
-    private static string SerializeScreening(Screen result) => JsonConvert.SerializeObject(result, Formatting.Indented);
+    private static string SerializeScreening(Screen result) =>
+        result.Classification.Category1.Score > 0.3d
+        || result.Classification.Category2.Score > 0.3d
+        || result.Classification.Category3.Score > 0.3d
+            ? JsonConvert.SerializeObject(result, Formatting.Indented)
+            : $"'{result.OriginalText}' got scores: {result.Classification.Category1.Score}, {result.Classification.Category2.Score}, {result.Classification.Category3.Score}";
 
     private static void LogEvaluateFailure(Exception exception) =>
         Console.WriteLine($"Evaluation error: {exception.Message}");
@@ -40,6 +45,19 @@ public static class HarassmentEvaluator
 
     private static void LogEvaluateBeginning(ScreeningInput screening) =>
         Console.WriteLine($"Evaluating: '{screening.Text}'");
+
+    private static Screen FilterScreening(Screen screen)
+    {
+        if (screen.Classification.Category1.Score > 0.3d
+            || screen.Classification.Category2.Score > 0.3d
+            || screen.Classification.Category3.Score > 0.3d)
+        {
+            return screen;
+        }
+
+        throw new Exception(
+            $"'{screen.OriginalText}' got scores: {screen.Classification.Category1}, {screen.Classification.Category2}, {screen.Classification.Category3}");
+    }
 
     private static async Task<Screen> ScreenTextAsync(ScreeningInput screening) =>
         await CreateClient(screening).TextModeration.ScreenTextAsync("text/plain",
