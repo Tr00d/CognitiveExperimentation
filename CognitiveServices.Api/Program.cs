@@ -1,25 +1,34 @@
+using CognitiveServices.Api;
+using Microsoft.Azure.CognitiveServices.ContentModerator;
 using Vonage.Extensions;
 using Vonage.Request;
 
+var vonageCredentials =
+    Credentials.FromAppIdAndPrivateKeyPath(GetOptions().VonageApplicationId, GetOptions().VonagePrivateKeyPath);
 var builder = WebApplication.CreateBuilder(args);
-
-// Add services to the container.
 builder.Services.AddControllers();
-
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
-builder.Services.AddVonageClientScoped(Credentials.FromAppIdAndPrivateKeyPath("5df45383-cb83-4907-bfc4-a754eab38ca0", "Key.txt"));
+builder.Services.AddScoped<CognitiveOptions>(_ => GetOptions());
+builder.Services.AddScoped<ApiKeyServiceClientCredentials>(service =>
+    new ApiKeyServiceClientCredentials(service.GetRequiredService<CognitiveOptions>().ApiKey));
+builder.Services.AddVonageClientScoped(vonageCredentials);
+builder.Services.AddScoped<ContentModeratorClient>(service =>
+    new ContentModeratorClient(service.GetRequiredService<ApiKeyServiceClientCredentials>())
+    {
+        Endpoint = service.GetRequiredService<CognitiveOptions>().ApiEndpoint,
+    });
 var app = builder.Build();
-
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
-
-
+app.UseSwagger();
+app.UseSwaggerUI();
 app.UseAuthorization();
 app.MapControllers();
 app.Run();
+
+CognitiveOptions GetOptions() =>
+    new ConfigurationBuilder()
+        .AddJsonFile("appsettings.json", false, true)
+        .Build()
+        .GetSection(nameof(CognitiveOptions))
+        .Get<CognitiveOptions>() ??
+    throw new InvalidOperationException("Cannot load CognitiveOptions from configuration file.");
