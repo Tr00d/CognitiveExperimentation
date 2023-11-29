@@ -11,45 +11,45 @@ namespace CognitiveServices.Api.Controllers;
 [Route("[controller]")]
 public class HarassmentController : ControllerBase
 {
-    private readonly ContentModeratorClient moderationClient;
-    private readonly IMessagesClient messagesClient;
+	private readonly ContentModeratorClient moderationClient;
+	private readonly IMessagesClient messagesClient;
 
-    public HarassmentController(IMessagesClient messagesClient, ContentModeratorClient moderationClient)
-    {
-        this.messagesClient = messagesClient;
-        this.moderationClient = moderationClient;
-    }
+	public HarassmentController(IMessagesClient messagesClient, ContentModeratorClient moderationClient)
+	{
+		this.messagesClient = messagesClient;
+		this.moderationClient = moderationClient;
+	}
 
-    [HttpPost]
-    public async Task<IActionResult> ReceiveSmsCallBack(SmsInput input)
-    {
-        var result = await this.ScreenUserInputAsync(input.Text);
-        await this.messagesClient.SendAsync(new SmsRequest
-        {
-            From = input.To,
-            To = input.From,
-            Text = BuildOutputMessage(result.Classification),
-        });
-        return this.Ok();
-    }
+	[HttpPost]
+	public async Task<IActionResult> ReceiveSmsCallBack(SmsInput input)
+	{
+		var result = await this.ScreenUserInputAsync(input.Text);
+		var response = await this.messagesClient.SendAsync(new SmsRequest
+		{
+			From = input.To,
+			To = input.From,
+			Text = BuildOutputMessage(result.Classification),
+		});
+		return this.Ok(new {response.MessageUuid, Evaluation = BuildOutputMessage(result.Classification)});
+	}
 
-    private static string BuildOutputMessage(Classification classification)
-    {
-        var stringBuilder = new StringBuilder();
-        stringBuilder.AppendLine($"Sexually explicit: {FormatPercentageOutput(classification.Category1.Score)}");
-        stringBuilder.AppendLine($"Sexually suggestive: {FormatPercentageOutput(classification.Category2.Score)}");
-        stringBuilder.AppendLine($"Offensive: {FormatPercentageOutput(classification.Category3.Score)}");
-        return stringBuilder.ToString();
-    }
+	private static string BuildOutputMessage(Classification classification)
+	{
+		var stringBuilder = new StringBuilder();
+		stringBuilder.AppendLine($"Sexually explicit: {FormatPercentageOutput(classification.Category1.Score)}");
+		stringBuilder.AppendLine($"Sexually suggestive: {FormatPercentageOutput(classification.Category2.Score)}");
+		stringBuilder.AppendLine($"Offensive: {FormatPercentageOutput(classification.Category3.Score)}");
+		return stringBuilder.ToString();
+	}
 
-    private static string FormatPercentageOutput(double? value) => value.HasValue
-        ? (value.Value * 100).ToString("0'%'")
-        : string.Empty;
+	private static string FormatPercentageOutput(double? value) => value.HasValue
+		? (value.Value * 100).ToString("0'%'")
+		: string.Empty;
 
-    private Task<Screen> ScreenUserInputAsync(string input) =>
-        this.moderationClient.TextModeration.ScreenTextAsync("text/plain",
-            new MemoryStream(Encoding.UTF8.GetBytes(input)), "eng",
-            true, true, null, true);
+	private Task<Screen> ScreenUserInputAsync(string input) =>
+		this.moderationClient.TextModeration.ScreenTextAsync("text/plain",
+			new MemoryStream(Encoding.UTF8.GetBytes(input)), "eng",
+			true, true, null, true);
 
-    public record SmsInput(string To, string From, string Text);
+	public record SmsInput(string To, string From, string Text);
 }
